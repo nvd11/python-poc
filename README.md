@@ -1,1 +1,1 @@
-# python-ocr
+for some pocs

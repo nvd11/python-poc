@@ -152,3 +152,43 @@ if __name__ == "__main__":
 
 -   `asyncio.run()` 是**电影院的经理**。他的工作是：开门营业（创建循环），播放当天的电影（运行主协程），等电影放完（等待完成），最后关门谢客（关闭循环）。
 -   `asyncio.gather()` 是电影中的**多屏特效**。导演（你的代码）想要在同一时间展示多个场景（并发任务），`gather()`就是那个能将这些场景组合起来同时播放的工具。这个特效必须在电影院已经开门、放映机已经启动（事件循环已运行）的前提下才能使用。
+
+---
+
+## 4. 深入对比：`asyncio.run()` vs `loop.run_until_complete()`
+
+`loop.run_until_complete()` 是一个更低级的API，在`asyncio.run()`出现之前（Python 3.7以前），它是启动异步任务的主要方式。它们都能启动事件循环，但有本质区别。
+
+| 特性 | `asyncio.run()` (高级API) | `loop.run_until_complete()` (低级API) |
+| :--- | :--- | :--- |
+| **API层级** | **高级 (High-level)** | **低级 (Low-level)** |
+| **循环管理** | **全自动** (创建、运行、关闭) | **手动** (需要手动获取和关闭循环) |
+| **推荐用法** | **现代首选**，简洁、安全 | **旧式**，或用于需要精细控制循环的复杂场景 |
+| **简洁性** | 非常简洁，一行代码搞定 | 相对繁琐，需要多行代码来管理循环 |
+
+### `loop.run_until_complete()` 的手动工作流
+
+使用低级API，你必须像这样手动管理所有步骤：
+
+```python
+import asyncio
+
+async def main():
+    print("Hello")
+    await asyncio.sleep(1)
+    print("World")
+
+# 1. 手动获取事件循环
+loop = asyncio.get_event_loop()
+try:
+    # 2. 手动运行任务
+    loop.run_until_complete(main())
+finally:
+    # 3. 手动关闭循环
+    loop.close()
+```
+
+### 结论
+
+-   **优先使用 `asyncio.run()`**：对于绝大多数应用，特别是启动主程序，`asyncio.run()` 更简单、更安全，能有效避免忘记关闭循环等资源泄露问题。
+-   **何时使用 `loop.run_until_complete()`**：当你需要与一个长期运行的线程中的事件循环进行复杂的交互，或者在一些需要精细控制循环生命周期的库或框架中，这个低级API才有用武之地。对于普通应用程序开发，基本可以忘记它。

@@ -16,21 +16,21 @@ def log_execution_time(func):
     @functools.wraps(func)
     def sync_wrapper(*args, **kwargs):
         start_time = time.time()
-        logger.info(f"Function '{func.__name__}' started.")
+        logger.info(f"Function '{func.__name__}' started with args: {args}, kwargs: {kwargs}")
         result = func(*args, **kwargs)
         end_time = time.time()
         elapsed_time = end_time - start_time
-        logger.info(f"Function '{func.__name__}' finished. Elapsed time: {elapsed_time:.4f} seconds")
+        logger.info(f"Function '{func.__name__}' finished with args: {args}, kwargs: {kwargs}. Elapsed time: {elapsed_time:.4f} seconds")
         return result
 
     @functools.wraps(func)
     async def async_wrapper(*args, **kwargs):
         start_time = time.time()
-        logger.info(f"Function '{func.__name__}' started.")
+        logger.info(f"Function '{func.__name__}' started with args: {args}, kwargs: {kwargs}")
         result = await func(*args, **kwargs)
         end_time = time.time()
         elapsed_time = end_time - start_time
-        logger.info(f"Function '{func.__name__}' finished. Elapsed time: {elapsed_time:.4f} seconds")
+        logger.info(f"Function '{func.__name__}' finished with args: {args}, kwargs: {kwargs}. Elapsed time: {elapsed_time:.4f} seconds")
         return result
 
     if iscoroutinefunction(func):

@@ -8,5 +8,6 @@ from src.llm.gemini_chat_model_factory import GeminiChatModelFactory
 def test_translate_chain():
     llm = GeminiChatModelFactory().build()
     chain = TranslateChainFactory.create_chain(llm)
+    logger.info("starting test_translate_chain")
     output = chain.invoke({"text": "why sky is blue"})
     logger.info(output)

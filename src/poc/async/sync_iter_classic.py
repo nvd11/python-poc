@@ -1,110 +1,112 @@
 import os
 import csv
 import time
-from google.cloud import bigquery
+import psycopg2
 
-# This is the custom, "classic" iterator class.
+# --- Database Configuration ---
+DB_USER = 'nvd11'
+# 从环境变量读取, 禁止硬编码; 运行前 export DB_PASSWORD=...
+DB_PASSWORD = os.getenv('DB_PASSWORD', '')
+DB_HOST = '34.39.2.90'
+DB_PORT = 5432
+DB_NAME = 'default_db'
+DB_TABLE = 'test_table1'
+
+# --- File Configuration ---
+CSV_FILE_PATH = 'data/small_data_200.csv'
+
+# --- Classic Sync Iterator Class ---
 class CSVIterator:
-    """
-    A classic iterator class that reads a CSV file row by row.
-    It maintains its own state (file handle, reader position).
-    """
     def __init__(self, csv_path):
         self.csv_path = csv_path
-        self.file_handler = open(self.csv_path, 'r', encoding='utf-8')
-        self.reader = csv.reader(self.file_handler)  # Returns an iterator to read row by row, not all content at once
-        self.header = next(self.reader) # Read the header row upon initialization
+        self.file_handler = open(self.csv_path, 'r', encoding='utf-8-sig')
+        self.reader = csv.reader(self.file_handler)
+        self.header = next(self.reader)
 
     def __iter__(self):
-        # An iterator's __iter__ method should always return itself.
         return self
 
     def __next__(self):
-        """
-        Returns the next row from the CSV as a dictionary.
-        Raises StopIteration when the file is exhausted.
-        """
         try:
-            # Read the next row from the csv reader
             row = next(self.reader)
-            # Combine header and row into a dictionary
             return dict(zip(self.header, row))
         except StopIteration:
-            # When the reader is exhausted, it raises StopIteration.
-            # We catch it, close the file to clean up resources, and then re-raise it
-            # to signal the end of iteration to the for loop.
             self.file_handler.close()
             raise
 
-class CSV2BQ:
-    """
-    Reads data from a CSV file and streams it to a BigQuery table.
-    This version uses a classic, custom iterator class instead of a generator.
-    """
-
-    def __init__(self, csv_path: str, bq_table_id: str, proxy: str = None):
-        """
-        Initializes the CSV2BQ class (the iterable object).
-        """
-        if proxy:
-            os.environ['HTTPS_PROXY'] = f'http://{proxy}'
-            print(f"Using proxy: {os.environ['HTTPS_PROXY']}")
-
+# --- Main Container and Task Runner Class (Sync Version) ---
+class CSV2PG_Sync:
+    def __init__(self, csv_path, db_user, db_password, db_host, db_port, db_name, db_table):
         self.csv_path = csv_path
-        self.bq_table_id = bq_table_id
-        self.bq_client = bigquery.Client()
+        self.db_conn_info = f"dbname='{db_name}' user='{db_user}' host='{db_host}' port='{db_port}' password='{db_password}'"
 
     def __iter__(self):
-        """
-        This makes the CSV2BQ class iterable.
-        It returns a new instance of our custom iterator class.
-        """
         return CSVIterator(self.csv_path)
 
-    def stream_to_bq(self):
-        """
-        Streams the data from the CSV file to the BigQuery table, one row at a time.
-        """
-        total_rows_streamed = 0
-        total_rows_with_errors = 0
+    def stream_to_pg_sync(self):
         start_time = time.time()
+        connection = None
+        total_inserted = 0
+        total_failed = 0
 
-        print(f"Starting to stream data to {self.bq_table_id} one row at a time...")
+        try:
+            connection = psycopg2.connect(self.db_conn_info)
+            cursor = connection.cursor()
+            print(f"Sync connection to PostgreSQL at {DB_HOST} established.")
+            
+            sql_insert = f"""
+                INSERT INTO {DB_TABLE} (Column_1, Column_2, Column_3, Column_4, Column_5, Column_6, Column_7, Column_8, Column_9, Column_10)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (Column_1) DO NOTHING;
+            """
+            
+            print("Starting synchronous row-by-row insertion...")
+            for i, row in enumerate(self):
+                try:
+                    values = (
+                        row['Column_1'], row['Column_2'], row['Column_3'], row['Column_4'],
+                        row['Column_5'], row['Column_6'], row['Column_7'], row['Column_8'],
+                        row['Column_9'], row['Column_10']
+                    )
+                    cursor.execute(sql_insert, values)
+                    total_inserted += 1
+                except Exception as e:
+                    print(f"Error inserting row {row.get('Column_1', 'N/A')}: {e}")
+                    total_failed += 1
+                
+                if (i + 1) % 20 == 0:
+                    elapsed_time = time.time() - start_time
+                    print(f"Processed {i + 1} rows in {elapsed_time:.2f}s")
+            
+            connection.commit() # Commit all the successful inserts
 
-        # The `for` loop implicitly calls `__iter__` on `self`, which returns our CSVIterator instance.
-        # The loop then repeatedly calls `__next__` on that instance.
-        for i, row in enumerate(self):
-            errors = self.bq_client.insert_rows_json(self.bq_table_id, [row])
-            
-            if not errors:
-                total_rows_streamed += 1
-            else:
-                print(f"Encountered error on row {i+1}: {errors}")
-                total_rows_with_errors += 1
-            
-            if (i + 1) % 10 == 0:
-                elapsed_time = time.time() - start_time
-                print(f"Processed {i + 1} rows in {elapsed_time:.2f} seconds...")
+        except Exception as e:
+            if connection:
+                connection.rollback()
+            print(f"A critical error occurred: {e}")
+        finally:
+            if connection:
+                connection.close()
+                print("Connection closed.")
 
         end_time = time.time()
-        
-        print("\n--- Streaming Summary ---")
-        print(f"Total rows successfully streamed: {total_rows_streamed}")
-        print(f"Total rows with insertion errors: {total_rows_with_errors}")
+        print("\n--- Sync Insert Summary ---")
+        print(f"Total rows successfully inserted: {total_inserted}")
+        print(f"Total rows failed: {total_failed}")
         print(f"Total time taken: {end_time - start_time:.2f} seconds.")
-        print("--------------------------")
+        print("---------------------------")
 
-# Example Usage:
-if __name__ == '__main__':
-    CSV_FILE_PATH = 'data/small_data_200.csv' # Use the new smaller file
-    BQ_TABLE_ID = "jason-hsbc.DS1.test_table1"
-    PROXY_ADDRESS = "10.0.1.223:7890"
-    
-    csv_to_bq_iterable = CSV2BQ(
-        csv_path=CSV_FILE_PATH, 
-        bq_table_id=BQ_TABLE_ID, 
-        proxy=PROXY_ADDRESS
+def main():
+    streamer = CSV2PG_Sync(
+        csv_path=CSV_FILE_PATH,
+        db_user=DB_USER,
+        db_password=DB_PASSWORD,
+        db_host=DB_HOST,
+        db_port=DB_PORT,
+        db_name=DB_NAME,
+        db_table=DB_TABLE
     )
-    
-    # Run the full streaming process for the test.
-    csv_to_bq_iterable.stream_to_bq()
+    streamer.stream_to_pg_sync()
+
+if __name__ == '__main__':
+    main()
